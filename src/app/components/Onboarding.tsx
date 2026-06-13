@@ -275,7 +275,15 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
     }
   }
 
+  function newEventId(): string {
+    if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+      return crypto.randomUUID();
+    }
+    return Math.random().toString(36).slice(2) + Date.now().toString(36);
+  }
+
   async function callCreateLead(): Promise<string | null> {
+    const event_id = newEventId();
     try {
       const res = await fetch(`${API_URL}/api/leads`, {
         method: 'POST',
@@ -286,6 +294,8 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
           apellido: form.apellido.trim(),
           email: form.email.trim().toLowerCase(),
           whatsapp: form.whatsapp.trim(),
+          event_id,
+          event_source_url: typeof window !== 'undefined' ? window.location.href : undefined,
         }),
       });
       const data = await res.json();
@@ -300,6 +310,15 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
       }
       localStorage.setItem(LS_LEAD, data.leadId);
       setLeadId(data.leadId);
+      // Pixel Lead + GA4 generate_lead (mismo event_id que el CAPI server-side)
+      if (typeof window !== 'undefined') {
+        try {
+          window.fbq?.('track', 'Lead', { content_name: 'nexo-onboarding' }, { eventID: event_id });
+        } catch {}
+        try {
+          window.gtag?.('event', 'generate_lead', { event_category: 'form', event_label: 'nexo-onboarding' });
+        } catch {}
+      }
       return data.leadId;
     } catch {
       setError('No se pudo conectar con el servidor. Probá de nuevo.');
@@ -308,6 +327,8 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
   }
 
   async function callFinalizeLead(currentLeadId: string): Promise<{ affiliateId: string; checkoutUrl: string } | null> {
+    const eventIdCR = newEventId();
+    const eventIdIC = newEventId();
     try {
       const res = await fetch(`${API_URL}/api/leads/${currentLeadId}`, {
         method: 'PATCH',
@@ -321,6 +342,9 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
           depto: form.depto.trim(),
           medio_pago: form.medio_pago,
           mp_email: form.mp_email.trim() || undefined,
+          event_id_complete_registration: eventIdCR,
+          event_id_initiate_checkout: eventIdIC,
+          event_source_url: typeof window !== 'undefined' ? window.location.href : undefined,
         }),
       });
       const data = await res.json();
@@ -333,13 +357,25 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
         }
         return null;
       }
-      // Lead → converted. Borramos el lead_id porque ya no aplica; guardamos affiliate + checkout.
       localStorage.removeItem(LS_LEAD);
       localStorage.setItem(LS_AFFILIATE, data.affiliateId);
       localStorage.setItem(LS_CHECKOUT, data.checkoutUrl);
+      localStorage.setItem('nexo_event_id_ic', eventIdIC);
       setLeadId(null);
       setAffiliateId(data.affiliateId);
       setCheckoutUrl(data.checkoutUrl);
+
+      // Pixel CompleteRegistration + GA4 sign_up (dedup CAPI vía eventID compartido)
+      const planName = 'Previnca Nexo';
+      const value = 19500;
+      if (typeof window !== 'undefined') {
+        try {
+          window.fbq?.('track', 'CompleteRegistration', { content_name: planName, currency: 'ARS', value }, { eventID: eventIdCR });
+        } catch {}
+        try {
+          window.gtag?.('event', 'sign_up', { method: 'nexo-onboarding', value, currency: 'ARS' });
+        } catch {}
+      }
       return { affiliateId: data.affiliateId, checkoutUrl: data.checkoutUrl };
     } catch {
       setError('No se pudo conectar con el servidor. Probá de nuevo.');
@@ -390,20 +426,25 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
 
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (typeof window !== 'undefined') {
-      if (typeof window.fbq === 'function') {
-        window.fbq('track', 'Lead', { content_name: 'nexo-onboarding' });
-      }
-      if (typeof window.gtag === 'function') {
-        window.gtag('event', 'generate_lead', { event_category: 'form', event_label: 'nexo-onboarding', value: 1 });
-      }
-    }
-    if (checkoutUrl) {
-      // Redirige a Mercado Pago para que pague
-      window.location.href = checkoutUrl;
+    if (!checkoutUrl) {
+      setError('No tenemos el link de pago todavía. Volvé al paso anterior y reintentá.');
       return;
     }
-    setError('No tenemos el link de pago todavía. Volvé al paso anterior y reintentá.');
+    // Dispara InitiateCheckout client-side justo antes del redirect.
+    // Usa el mismo event_id que el server-side ya envió a CAPI → dedup.
+    if (typeof window !== 'undefined') {
+      const eventIdIC = localStorage.getItem('nexo_event_id_ic') || newEventId();
+      try {
+        window.fbq?.('track', 'InitiateCheckout', { content_name: 'Previnca Nexo', currency: 'ARS', value: 19500 }, { eventID: eventIdIC });
+      } catch {}
+      try {
+        window.gtag?.('event', 'begin_checkout', { currency: 'ARS', value: 19500, items: [{ item_name: 'Previnca Nexo', price: 19500, quantity: 1 }] });
+      } catch {}
+    }
+    // Pequeño delay para que el pixel pueda enviar el request antes del navigate
+    setTimeout(() => {
+      window.location.href = checkoutUrl;
+    }, 400);
   }
 
   const hoy = new Date();
