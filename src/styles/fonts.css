@@ -1,0 +1,2 @@
+/* Las fuentes se cargan con <link> en index.html (en paralelo, no bloqueante).
+   El @import acá bloqueaba el parseo/render del CSS principal y retrasaba el primer pintado. */
