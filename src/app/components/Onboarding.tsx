@@ -199,9 +199,7 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
       if (!form.numero.trim()) invalid.add('numero');
     } else if (s === 5) {
       if (!form.medio_pago) invalid.add('medio_pago');
-      if (form.medio_pago === 'mp_balance' && (!form.mp_email.trim() || !EMAIL_RE.test(form.mp_email.trim()))) {
-        invalid.add('mp_email');
-      }
+      // mp_email no se valida — es solo una formalidad de MP, opcional
     }
     return {
       error: invalid.size > 0 ? 'Completá los campos en rojo para continuar.' : null,
@@ -653,8 +651,8 @@ export function Onboarding({ onClose }: { onClose: () => void }) {
                 </div>
                 <div className={`ob-collapsible ${form.medio_pago === 'mp_balance' ? 'open' : 'closed'}`}>
                   <div className="ob-field" style={{ marginBottom: 0 }}>
-                    <label className="ob-label">Email de la cuenta Mercado Pago</label>
-                    <input className={`ob-input${errCls('mp_email')}`} type="email" value={form.mp_email} onChange={(e) => setField('mp_email', e.target.value)} placeholder="tu@email.com" />
+                    <label className="ob-label">Email de la cuenta Mercado Pago (opcional)</label>
+                    <input className="ob-input" type="email" value={form.mp_email} onChange={(e) => setField('mp_email', e.target.value)} placeholder="tu@email.com" />
                   </div>
                 </div>
                 {error && <ErrorMsg msg={error} />}
